@@ -9,10 +9,10 @@ import (
 )
 
 func buildApp(ctx context.Context) error {
-	return goBuildPkg(ctx, "cmd", "bin/client", false)
+	return goBuildPkg(ctx, "cmd", "bin/digest-client", false)
 }
 
 func runApp(ctx context.Context, deps build.DepsFunc) error {
 	deps(buildApp)
-	return run.Exec(ctx, exec.Command("./bin/client"))
+	return run.Exec(ctx, exec.Command("./bin/digest-client"))
 }
