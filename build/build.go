@@ -5,5 +5,5 @@ import (
 )
 
 func buildMe(ctx context.Context) error {
-	return goBuildPkg(ctx, "build/cmd", "bin/build-cms", true)
+	return goBuildPkg(ctx, "build/cmd", "bin/tmp-digest", true)
 }
