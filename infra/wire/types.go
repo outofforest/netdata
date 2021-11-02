@@ -1,6 +1,7 @@
 package wire
 
 import (
+	"errors"
 	"fmt"
 	"time"
 )
@@ -25,16 +26,6 @@ const (
 	StatusCritical Status = "CRITICAL"
 )
 
-// VerifyStatus verifies that incoming status is one of accepted values
-func VerifyStatus(status Status) error {
-	switch status {
-	case StatusCleared, StatusWarning, StatusCritical:
-		return nil
-	default:
-		return fmt.Errorf("unknown status: %s", status)
-	}
-}
-
 // AlarmStatusChanged is the incoming AlarmStatusChanged message
 type AlarmStatusChanged struct {
 	// UserID is the user ID
@@ -50,10 +41,32 @@ type AlarmStatusChanged struct {
 	ChangedAt time.Time
 }
 
+// Validate validates if message contains valid data
+func (o AlarmStatusChanged) Validate() error {
+	if o.UserID == "" {
+		return errors.New("field UserID is empty")
+	}
+	if o.AlarmID == "" {
+		return errors.New("field AlarmID is empty")
+	}
+	if o.ChangedAt.IsZero() {
+		return errors.New("field ChangedAt is a zero time")
+	}
+	return verifyStatus(o.Status)
+}
+
 // SendAlarmDigest is the incoming SendAlarmDigest message
 type SendAlarmDigest struct {
 	// UserID is the user ID
 	UserID UserID
+}
+
+// Validate validates if message contains valid data
+func (o SendAlarmDigest) Validate() error {
+	if o.UserID == "" {
+		return errors.New("field UserID is empty")
+	}
+	return nil
 }
 
 // Alarm contains the current state of the alarm
@@ -75,4 +88,16 @@ type AlarmDigest struct {
 
 	// ActiveAlarms is the list of active alarms
 	ActiveAlarms []Alarm
+}
+
+// verifyStatus verifies that incoming status is one of accepted values
+func verifyStatus(status Status) error {
+	switch status {
+	case StatusCleared, StatusWarning, StatusCritical:
+		return nil
+	case "":
+		return errors.New("status is empty")
+	default:
+		return fmt.Errorf("unknown status: %s", status)
+	}
 }

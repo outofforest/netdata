@@ -39,11 +39,25 @@ func main() {
 					case <-ctx.Done():
 						return ctx.Err()
 					case doneCh := <-updatesRecvCh:
-						log.Info("Update received", zap.Any("update", update))
-						close(doneCh)
+						func() {
+							defer close(doneCh)
+
+							log := log.With(zap.Any("update", update))
+							if err := update.Validate(); err != nil {
+								log.Error("Invalid update received")
+							}
+							log.Info("Update received")
+						}()
 					case doneCh := <-sendRecvCh:
-						log.Info("Send request received", zap.Any("send", send))
-						close(doneCh)
+						func() {
+							defer close(doneCh)
+
+							log := log.With(zap.Any("send", send))
+							if err := update.Validate(); err != nil {
+								log.Error("Invalid send request received")
+							}
+							log.Info("Send request received")
+						}()
 					}
 				}
 			})
