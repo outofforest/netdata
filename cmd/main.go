@@ -5,6 +5,7 @@ import (
 
 	"github.com/ridge/parallel"
 	digest "github.com/wojciech-malota-wojcik/netdata-digest"
+	"github.com/wojciech-malota-wojcik/netdata-digest/infra"
 	"github.com/wojciech-malota-wojcik/netdata-digest/infra/bus"
 	"github.com/wojciech-malota-wojcik/netdata-digest/infra/wire"
 	"github.com/wojciech-malota-wojcik/netdata-digest/lib/logger"
@@ -13,7 +14,7 @@ import (
 )
 
 func main() {
-	run.Service("digest", digest.IoC, func(ctx context.Context, conn bus.Connection) error {
+	run.Service("digest", digest.IoC, func(ctx context.Context, config infra.Config, conn bus.Connection) error {
 		return parallel.Run(ctx, func(ctx context.Context, spawn parallel.SpawnFn) error {
 			spawn("bus", parallel.Fail, conn.Run)
 			spawn("incomingUpdates", parallel.Fail, func(ctx context.Context) error {
@@ -36,7 +37,8 @@ func main() {
 							if err := update.Validate(); err != nil {
 								log.Error("Invalid update received")
 							}
-							log.Info("Update received")
+
+							log.Info("Update received", zap.Any("shardID", infra.DeriveShardID(update.UserID, config.NumOfShards)))
 						}()
 					}
 				}
@@ -61,7 +63,7 @@ func main() {
 							if err := send.Validate(); err != nil {
 								log.Error("Invalid send request received")
 							}
-							log.Info("Send request received")
+							log.Info("Send request received", zap.Any("shardID", infra.DeriveShardID(send.UserID, config.NumOfShards)))
 						}()
 					}
 				}
