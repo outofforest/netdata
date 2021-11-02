@@ -16,19 +16,9 @@ func main() {
 	run.Service("digest", digest.IoC, func(ctx context.Context, conn bus.Connection) error {
 		return parallel.Run(ctx, func(ctx context.Context, spawn parallel.SpawnFn) error {
 			spawn("bus", parallel.Fail, conn.Run)
-			spawn("incoming", parallel.Fail, func(ctx context.Context) error {
+			spawn("incomingUpdates", parallel.Fail, func(ctx context.Context) error {
 				update := &wire.AlarmStatusChanged{}
 				updatesRecvCh, err := conn.Subscribe(ctx, update)
-				if err != nil {
-					return err
-				}
-
-				send := &wire.SendAlarmDigest{}
-				sendRecvCh, err := conn.Subscribe(ctx, send)
-				if err != nil {
-					return err
-				}
-
 				if err != nil {
 					return err
 				}
@@ -48,12 +38,27 @@ func main() {
 							}
 							log.Info("Update received")
 						}()
+					}
+				}
+			})
+			spawn("incomingRequests", parallel.Fail, func(ctx context.Context) error {
+				send := &wire.SendAlarmDigest{}
+				sendRecvCh, err := conn.Subscribe(ctx, send)
+				if err != nil {
+					return err
+				}
+
+				log := logger.Get(ctx)
+				for {
+					select {
+					case <-ctx.Done():
+						return ctx.Err()
 					case doneCh := <-sendRecvCh:
 						func() {
 							defer close(doneCh)
 
 							log := log.With(zap.Any("send", send))
-							if err := update.Validate(); err != nil {
+							if err := send.Validate(); err != nil {
 								log.Error("Invalid send request received")
 							}
 							log.Info("Send request received")
