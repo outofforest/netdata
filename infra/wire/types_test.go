@@ -7,29 +7,33 @@ import (
 )
 
 func TestStatusCleared(t *testing.T) {
-	assert.NoError(t, VerifyStatus(Status("CLEARED")))
+	assert.NoError(t, verifyStatus(Status("CLEARED")))
 }
 
 func TestStatusWarning(t *testing.T) {
-	assert.NoError(t, VerifyStatus(Status("WARNING")))
+	assert.NoError(t, verifyStatus(Status("WARNING")))
 }
 
 func TestStatusCritical(t *testing.T) {
-	assert.NoError(t, VerifyStatus(Status("CRITICAL")))
+	assert.NoError(t, verifyStatus(Status("CRITICAL")))
 }
 
 func TestStatusIncorrect1(t *testing.T) {
-	assert.Error(t, VerifyStatus(Status("cleared")))
+	assert.Error(t, verifyStatus(Status("cleared")))
 }
 
 func TestStatusIncorrect2(t *testing.T) {
-	assert.Error(t, VerifyStatus(Status("warning")))
+	assert.Error(t, verifyStatus(Status("warning")))
 }
 
 func TestStatusIncorrect3(t *testing.T) {
-	assert.Error(t, VerifyStatus(Status("critical")))
+	assert.Error(t, verifyStatus(Status("critical")))
 }
 
 func TestStatusIncorrect4(t *testing.T) {
-	assert.Error(t, VerifyStatus(Status("weird")))
+	assert.Error(t, verifyStatus(Status("weird")))
+}
+
+func TestStatusIncorrect5(t *testing.T) {
+	assert.Error(t, verifyStatus(Status("")))
 }
