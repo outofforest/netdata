@@ -7,7 +7,7 @@ import (
 	"syscall"
 
 	"github.com/ridge/parallel"
-	"github.com/wojciech-malota-wojcik/netdata-digest/lib/logger"
+	"github.com/wojciech-malota-wojcik/netdata/lib/logger"
 	"go.uber.org/zap"
 )
 

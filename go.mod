@@ -1,4 +1,4 @@
-module github.com/wojciech-malota-wojcik/netdata-digest
+module github.com/wojciech-malota-wojcik/netdata
 
 go 1.16
 

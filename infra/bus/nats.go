@@ -10,10 +10,10 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/ridge/must"
-	"github.com/wojciech-malota-wojcik/netdata-digest/infra"
-	"github.com/wojciech-malota-wojcik/netdata-digest/infra/sharding"
-	"github.com/wojciech-malota-wojcik/netdata-digest/lib/logger"
-	"github.com/wojciech-malota-wojcik/netdata-digest/lib/retry"
+	"github.com/wojciech-malota-wojcik/netdata/infra"
+	"github.com/wojciech-malota-wojcik/netdata/infra/sharding"
+	"github.com/wojciech-malota-wojcik/netdata/lib/logger"
+	"github.com/wojciech-malota-wojcik/netdata/lib/retry"
 	"go.uber.org/zap"
 )
 
