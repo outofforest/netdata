@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/wojciech-malota-wojcik/netdata-digest/infra/sharding"
 
@@ -50,9 +51,26 @@ func main() {
 	})
 }
 
+type userList map[wire.UserID]alarmList
+
+type alarmList map[wire.AlarmID]*alarmStatus
+
+type alarmStatus struct {
+	// Status is the last reported status
+	Status wire.Status
+
+	// LastChangedAt is the time when status was updated
+	LastChangedAt time.Time
+
+	// ToSend is true if current state should be sent next time
+	ToSend bool
+}
+
 func localShard(i uint64, ch <-chan interface{}) parallel.Task {
 	return func(ctx context.Context) error {
 		log := logger.Get(ctx).With(zap.Uint64("localShardIndex", i))
+
+		users := userList{}
 
 		for {
 			select {
@@ -60,9 +78,40 @@ func localShard(i uint64, ch <-chan interface{}) parallel.Task {
 				return ctx.Err()
 			case msg := <-ch:
 				log := log.With(zap.Any("message", msg))
-				switch msg.(type) {
+				switch m := msg.(type) {
 				case wire.AlarmStatusChanged:
-					log.Info("Update received")
+					alarms := users[m.UserID]
+					if alarms == nil {
+						alarms = alarmList{}
+						users[m.UserID] = alarms
+					}
+					alarm := alarms[m.AlarmID]
+					if alarm == nil {
+						alarm = &alarmStatus{}
+						alarms[m.AlarmID] = alarm
+					}
+
+					if alarm.LastChangedAt.After(m.ChangedAt) {
+						log.Info("Update ignored because newer one exists")
+						continue
+					}
+					alarm.LastChangedAt = m.ChangedAt
+
+					switch {
+					case alarm.Status != m.Status:
+						alarm.Status = m.Status
+						if alarm.Status == wire.StatusCleared {
+							log.Info(fmt.Sprintf("Status is %s, alarm won't be sent", alarm.Status))
+							alarm.ToSend = false
+						} else {
+							log.Info("Alarm triggered")
+							alarm.ToSend = true
+						}
+					case alarm.ToSend:
+						log.Info("Status hasn't changed, alarm was triggered earlier")
+					default:
+						log.Info("Status hasn't changed, alarm won't be sent")
+					}
 				case wire.SendAlarmDigest:
 					log.Info("Request received")
 				default:
