@@ -327,3 +327,244 @@ func TestNoDigestIfAlarmIsClearedWithOutOfOrderUpdateInBetween(t *testing.T) {
 		send(user1),
 	), 0)
 }
+
+func TestTwoAlarmsOneActive(t *testing.T) {
+	result := runLocalShardTest(t,
+		change(user1, alarm1, wire.StatusCleared, time1),
+		change(user1, alarm2, wire.StatusCritical, time2),
+		send(user1),
+	)
+	require.Len(t, result, 1)
+	assert.Equal(t, wire.AlarmDigest{
+		UserID: user1,
+		ActiveAlarms: []wire.Alarm{
+			{
+				AlarmID:         alarm2,
+				Status:          wire.StatusCritical,
+				LatestChangedAt: time2,
+			},
+		},
+	}, result[0])
+}
+
+func TestTwoAlarmsTwoActive(t *testing.T) {
+	result := runLocalShardTest(t,
+		change(user1, alarm1, wire.StatusWarning, time1),
+		change(user1, alarm2, wire.StatusCritical, time2),
+		send(user1),
+	)
+	require.Len(t, result, 1)
+	assert.Equal(t, wire.AlarmDigest{
+		UserID: user1,
+		ActiveAlarms: []wire.Alarm{
+			{
+				AlarmID:         alarm1,
+				Status:          wire.StatusWarning,
+				LatestChangedAt: time1,
+			},
+			{
+				AlarmID:         alarm2,
+				Status:          wire.StatusCritical,
+				LatestChangedAt: time2,
+			},
+		},
+	}, result[0])
+}
+
+func TestAlarmsAreSorted(t *testing.T) {
+	result := runLocalShardTest(t,
+		change(user1, alarm2, wire.StatusCritical, time2),
+		change(user1, alarm1, wire.StatusWarning, time1),
+		send(user1),
+	)
+	require.Len(t, result, 1)
+	assert.Equal(t, wire.AlarmDigest{
+		UserID: user1,
+		ActiveAlarms: []wire.Alarm{
+			{
+				AlarmID:         alarm1,
+				Status:          wire.StatusWarning,
+				LatestChangedAt: time1,
+			},
+			{
+				AlarmID:         alarm2,
+				Status:          wire.StatusCritical,
+				LatestChangedAt: time2,
+			},
+		},
+	}, result[0])
+}
+
+func TestTwoAlarmsAreUpdated(t *testing.T) {
+	result := runLocalShardTest(t,
+		change(user1, alarm2, wire.StatusCritical, time2),
+		change(user1, alarm1, wire.StatusWarning, time1),
+		change(user1, alarm2, wire.StatusCleared, time3),
+		change(user1, alarm1, wire.StatusCritical, time2),
+		send(user1),
+	)
+	require.Len(t, result, 1)
+	assert.Equal(t, wire.AlarmDigest{
+		UserID: user1,
+		ActiveAlarms: []wire.Alarm{
+			{
+				AlarmID:         alarm1,
+				Status:          wire.StatusCritical,
+				LatestChangedAt: time2,
+			},
+		},
+	}, result[0])
+}
+
+func TestTwoUsersOnlyOneHavingSingleActiveAlarm(t *testing.T) {
+	result := runLocalShardTest(t,
+		change(user1, alarm1, wire.StatusCleared, time1),
+		change(user1, alarm2, wire.StatusWarning, time1),
+		change(user2, alarm2, wire.StatusWarning, time3),
+		change(user2, alarm1, wire.StatusCleared, time2),
+		change(user2, alarm2, wire.StatusCleared, time4),
+		send(user1),
+		send(user2),
+	)
+	require.Len(t, result, 1)
+	assert.Equal(t, wire.AlarmDigest{
+		UserID: user1,
+		ActiveAlarms: []wire.Alarm{
+			{
+				AlarmID:         alarm2,
+				Status:          wire.StatusWarning,
+				LatestChangedAt: time1,
+			},
+		},
+	}, result[0])
+}
+
+func TestTwoUsersOnlyOneHavingTwoActiveAlarms(t *testing.T) {
+	result := runLocalShardTest(t,
+		change(user2, alarm2, wire.StatusWarning, time3),
+		change(user1, alarm1, wire.StatusCritical, time1),
+		change(user1, alarm2, wire.StatusWarning, time2),
+		change(user2, alarm1, wire.StatusCleared, time2),
+		change(user2, alarm2, wire.StatusCleared, time4),
+		send(user1),
+		send(user2),
+	)
+	require.Len(t, result, 1)
+	assert.Equal(t, wire.AlarmDigest{
+		UserID: user1,
+		ActiveAlarms: []wire.Alarm{
+			{
+				AlarmID:         alarm1,
+				Status:          wire.StatusCritical,
+				LatestChangedAt: time1,
+			},
+			{
+				AlarmID:         alarm2,
+				Status:          wire.StatusWarning,
+				LatestChangedAt: time2,
+			},
+		},
+	}, result[0])
+}
+
+func TestTwoUsersHavingSameActiveAlarmInReverseOrder(t *testing.T) {
+	result := runLocalShardTest(t,
+		change(user2, alarm1, wire.StatusWarning, time3),
+		change(user1, alarm1, wire.StatusCritical, time1),
+		send(user1),
+		send(user2),
+	)
+	require.Len(t, result, 2)
+	assert.Equal(t, wire.AlarmDigest{
+		UserID: user1,
+		ActiveAlarms: []wire.Alarm{
+			{
+				AlarmID:         alarm1,
+				Status:          wire.StatusCritical,
+				LatestChangedAt: time1,
+			},
+		},
+	}, result[0])
+	assert.Equal(t, wire.AlarmDigest{
+		UserID: user2,
+		ActiveAlarms: []wire.Alarm{
+			{
+				AlarmID:         alarm1,
+				Status:          wire.StatusWarning,
+				LatestChangedAt: time3,
+			},
+		},
+	}, result[1])
+}
+
+func TestTwoUsersHavingDifferentActiveAlarms(t *testing.T) {
+	result := runLocalShardTest(t,
+		change(user2, alarm2, wire.StatusWarning, time3),
+		change(user1, alarm1, wire.StatusCritical, time1),
+		send(user1),
+		send(user2),
+	)
+	require.Len(t, result, 2)
+	assert.Equal(t, wire.AlarmDigest{
+		UserID: user1,
+		ActiveAlarms: []wire.Alarm{
+			{
+				AlarmID:         alarm1,
+				Status:          wire.StatusCritical,
+				LatestChangedAt: time1,
+			},
+		},
+	}, result[0])
+	assert.Equal(t, wire.AlarmDigest{
+		UserID: user2,
+		ActiveAlarms: []wire.Alarm{
+			{
+				AlarmID:         alarm2,
+				Status:          wire.StatusWarning,
+				LatestChangedAt: time3,
+			},
+		},
+	}, result[1])
+}
+
+func TestTwoUsersHavingTwoActiveAlarms(t *testing.T) {
+	result := runLocalShardTest(t,
+		change(user2, alarm2, wire.StatusWarning, time3),
+		change(user1, alarm1, wire.StatusCritical, time4),
+		change(user2, alarm1, wire.StatusCritical, time2),
+		change(user1, alarm2, wire.StatusWarning, time3),
+		send(user1),
+		send(user2),
+	)
+	require.Len(t, result, 2)
+	assert.Equal(t, wire.AlarmDigest{
+		UserID: user1,
+		ActiveAlarms: []wire.Alarm{
+			{
+				AlarmID:         alarm2,
+				Status:          wire.StatusWarning,
+				LatestChangedAt: time3,
+			},
+			{
+				AlarmID:         alarm1,
+				Status:          wire.StatusCritical,
+				LatestChangedAt: time4,
+			},
+		},
+	}, result[0])
+	assert.Equal(t, wire.AlarmDigest{
+		UserID: user2,
+		ActiveAlarms: []wire.Alarm{
+			{
+				AlarmID:         alarm1,
+				Status:          wire.StatusCritical,
+				LatestChangedAt: time2,
+			},
+			{
+				AlarmID:         alarm2,
+				Status:          wire.StatusWarning,
+				LatestChangedAt: time3,
+			},
+		},
+	}, result[1])
+}
