@@ -28,17 +28,19 @@ func NewNATSConnection(config infra.Config) Connection {
 	opts.NoEcho = true
 	opts.Verbose = config.VerboseLogging
 	return &natsConnection{
-		opts:  opts,
-		subs:  map[interface{}]bool{},
-		ready: make(chan struct{}),
+		config: config,
+		opts:   opts,
+		subs:   map[interface{}]bool{},
+		ready:  make(chan struct{}),
 	}
 }
 
 // natsConnection is NATS-specific implementation of Connection interface
 type natsConnection struct {
-	opts  nats.Options
-	nc    *nats.Conn
-	ready chan struct{}
+	config infra.Config
+	opts   nats.Options
+	nc     *nats.Conn
+	ready  chan struct{}
 
 	mu   sync.Mutex
 	subs map[interface{}]bool
@@ -71,7 +73,7 @@ func (conn *natsConnection) Run(ctx context.Context) error {
 }
 
 // Subscribe subscribes to topic and decodes received messages
-func (conn *natsConnection) Subscribe(ctx context.Context, templatePtr interface{}) (OnRecvCh, error) {
+func (conn *natsConnection) Subscribe(ctx context.Context, templatePtr Entity) (OnRecvCh, error) {
 	if err := waitReady(ctx, conn.ready); err != nil {
 		return nil, err
 	}
@@ -95,6 +97,16 @@ func (conn *natsConnection) Subscribe(ctx context.Context, templatePtr interface
 			log.Error("Decoding message failed", zap.Error(err))
 			return
 		}
+		if err := templatePtr.Validate(); err != nil {
+			log.Error("Received entity is in invalid state", zap.Error(err))
+			return
+		}
+		templatePtr.SetShardPreID(deriveShardPreID(templatePtr.ShardSeed()))
+		if shardID := templatePtr.ShardID(conn.config.NumOfShards); shardID != conn.config.ShardID {
+			log.Debug("Entity not for this shard received, ignoring", zap.Any("dstShardID", shardID), zap.Any("shardID", conn.config.ShardID))
+			return
+		}
+
 		msgCh := make(chan struct{})
 		recvCh <- msgCh
 		_ = waitReady(ctx, msgCh)

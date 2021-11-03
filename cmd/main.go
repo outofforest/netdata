@@ -34,11 +34,7 @@ func main() {
 							defer close(doneCh)
 
 							log := log.With(zap.Any("update", update))
-							if err := update.Validate(); err != nil {
-								log.Error("Invalid update received")
-							}
-
-							log.Info("Update received", zap.Any("shardID", infra.DeriveShardID(update.UserID, config.NumOfShards)))
+							log.Info("Update received")
 						}()
 					}
 				}
@@ -60,10 +56,7 @@ func main() {
 							defer close(doneCh)
 
 							log := log.With(zap.Any("send", send))
-							if err := send.Validate(); err != nil {
-								log.Error("Invalid send request received")
-							}
-							log.Info("Send request received", zap.Any("shardID", infra.DeriveShardID(send.UserID, config.NumOfShards)))
+							log.Info("Send request received")
 						}()
 					}
 				}
