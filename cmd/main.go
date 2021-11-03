@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/wojciech-malota-wojcik/netdata-digest/infra/sharding"
@@ -40,7 +41,7 @@ func main() {
 				localShardCh := make(chan interface{}, localShardBufferSize)
 				localShardChs = append(localShardChs, localShardCh)
 
-				spawn(fmt.Sprintf("localShard-%d", i), parallel.Fail, localShard(i, localShardCh))
+				spawn(fmt.Sprintf("localShard-%d", i), parallel.Fail, localShard(i, localShardCh, conn))
 			}
 
 			if err := conn.Subscribe(ctx, &wire.AlarmStatusChanged{}, localShardChs); err != nil {
@@ -59,14 +60,14 @@ type alarmStatus struct {
 	// Status is the last reported status
 	Status wire.Status
 
-	// LastChangedAt is the time when status was updated
-	LastChangedAt time.Time
+	// LatestChangedAt is the time when status was updated
+	LatestChangedAt time.Time
 
 	// ToSend is true if current state should be sent next time
 	ToSend bool
 }
 
-func localShard(i uint64, ch <-chan interface{}) parallel.Task {
+func localShard(i uint64, ch <-chan interface{}, conn bus.Connection) parallel.Task {
 	return func(ctx context.Context) error {
 		log := logger.Get(ctx).With(zap.Uint64("localShardIndex", i))
 
@@ -91,11 +92,11 @@ func localShard(i uint64, ch <-chan interface{}) parallel.Task {
 						alarms[m.AlarmID] = alarm
 					}
 
-					if alarm.LastChangedAt.After(m.ChangedAt) {
+					if alarm.LatestChangedAt.After(m.ChangedAt) {
 						log.Info("Update ignored because newer one exists")
 						continue
 					}
-					alarm.LastChangedAt = m.ChangedAt
+					alarm.LatestChangedAt = m.ChangedAt
 
 					switch {
 					case alarm.Status != m.Status:
@@ -113,7 +114,43 @@ func localShard(i uint64, ch <-chan interface{}) parallel.Task {
 						log.Info("Status hasn't changed, alarm won't be sent")
 					}
 				case wire.SendAlarmDigest:
-					log.Info("Request received")
+					log := log.With(zap.Any("userID", m.UserID))
+
+					alarms := users[m.UserID]
+					if alarms == nil {
+						log.Info("No alarms for user, nothing to send")
+					}
+
+					active := &wire.AlarmDigest{
+						UserID: m.UserID,
+					}
+					var sent []*alarmStatus
+					for alarmID, alarm := range alarms {
+						if alarm.ToSend {
+							active.ActiveAlarms = append(active.ActiveAlarms, wire.Alarm{
+								AlarmID:         alarmID,
+								Status:          alarm.Status,
+								LatestChangedAt: alarm.LatestChangedAt,
+							})
+							sent = append(sent, alarm)
+						}
+					}
+
+					sort.Slice(active.ActiveAlarms, func(i int, j int) bool {
+						return active.ActiveAlarms[i].LatestChangedAt.Before(active.ActiveAlarms[j].LatestChangedAt)
+					})
+
+					// Publish method of NATS doesn't send message over the network, it only buffers it.
+					// If it fails it means there is a serious problem on the server (no more memory etc.)
+					// So I decided it's better to panic in this case rather than hide the real issue in retry loop
+					if err := conn.Publish(ctx, active); err != nil {
+						panic(err)
+					}
+
+					for _, alarm := range sent {
+						alarm.ToSend = false
+					}
+
 				default:
 					panic(fmt.Errorf("message of unknown type %T received", msg))
 				}

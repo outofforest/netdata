@@ -86,8 +86,8 @@ type Alarm struct {
 	// Status is the last reported status
 	Status Status
 
-	// LastChangedAt is the time when status was updated
-	LastChangedAt time.Time
+	// LatestChangedAt is the time when status was updated
+	LatestChangedAt time.Time
 }
 
 // AlarmDigest is the outgoing AlarmDigest message
