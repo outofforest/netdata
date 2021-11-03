@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/wojciech-malota-wojcik/netdata-digest/infra/sharding"
 
@@ -14,6 +15,8 @@ import (
 	"github.com/wojciech-malota-wojcik/netdata-digest/lib/run"
 	"go.uber.org/zap"
 )
+
+const localShardBufferSize = 100
 
 // iocBuilder configures IoC container
 func iocBuilder(c *ioc.Container) {
@@ -30,51 +33,42 @@ func main() {
 
 		return parallel.Run(ctx, func(ctx context.Context, spawn parallel.SpawnFn) error {
 			spawn("bus", parallel.Fail, conn.Run)
-			spawn("incomingUpdates", parallel.Fail, func(ctx context.Context) error {
-				update := &wire.AlarmStatusChanged{}
-				updatesRecvCh, err := conn.Subscribe(ctx, update)
-				if err != nil {
-					return err
-				}
 
-				log := logger.Get(ctx)
-				for {
-					select {
-					case <-ctx.Done():
-						return ctx.Err()
-					case doneCh := <-updatesRecvCh:
-						func() {
-							defer close(doneCh)
+			localShardChs := make([]bus.RecvCh, 0, config.NumOfLocalShards)
+			for i := uint64(0); i < config.NumOfLocalShards; i++ {
+				localShardCh := make(chan interface{}, localShardBufferSize)
+				localShardChs = append(localShardChs, localShardCh)
 
-							log := log.With(zap.Any("update", update))
-							log.Info("Update received")
-						}()
-					}
-				}
-			})
-			spawn("incomingRequests", parallel.Fail, func(ctx context.Context) error {
-				send := &wire.SendAlarmDigest{}
-				sendRecvCh, err := conn.Subscribe(ctx, send)
-				if err != nil {
-					return err
-				}
+				spawn(fmt.Sprintf("localShard-%d", i), parallel.Fail, localShard(i, localShardCh))
+			}
 
-				log := logger.Get(ctx)
-				for {
-					select {
-					case <-ctx.Done():
-						return ctx.Err()
-					case doneCh := <-sendRecvCh:
-						func() {
-							defer close(doneCh)
-
-							log := log.With(zap.Any("send", send))
-							log.Info("Send request received")
-						}()
-					}
-				}
-			})
-			return nil
+			if err := conn.Subscribe(ctx, &wire.AlarmStatusChanged{}, localShardChs); err != nil {
+				return err
+			}
+			return conn.Subscribe(ctx, &wire.SendAlarmDigest{}, localShardChs)
 		})
 	})
+}
+
+func localShard(i uint64, ch <-chan interface{}) parallel.Task {
+	return func(ctx context.Context) error {
+		log := logger.Get(ctx).With(zap.Uint64("localShardIndex", i))
+
+		for {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case msg := <-ch:
+				log := log.With(zap.Any("message", msg))
+				switch msg.(type) {
+				case wire.AlarmStatusChanged:
+					log.Info("Update received")
+				case wire.SendAlarmDigest:
+					log.Info("Request received")
+				default:
+					panic(fmt.Errorf("message of unknown type %T received", msg))
+				}
+			}
+		}
+	}
 }
