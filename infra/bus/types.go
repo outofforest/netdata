@@ -13,17 +13,14 @@ type Entity interface {
 	Validate() error
 }
 
-// RecvCh is the channel where incomming messages are sent
-type RecvCh chan<- interface{}
-
 // Connection is an interface of event broker client
 type Connection interface {
 	// Run is a task which maintains and closes connection whenever context is canceled
 	Run(ctx context.Context) error
 
 	// Subscribe subscribes to the type-specific topic, receives messages from there and distributes them between receiving channels
-	Subscribe(ctx context.Context, templatePtr Entity, recvChs []RecvCh) error
+	Subscribe(ctx context.Context, templatePtr Entity, recvChs []chan<- interface{}) error
 
-	// Publish sends message to type-specific topic
-	Publish(ctx context.Context, msg interface{}) error
+	// PublishCh returns channel used to publish messages
+	PublishCh() chan<- interface{}
 }

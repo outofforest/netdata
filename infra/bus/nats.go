@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -32,7 +31,7 @@ func NewNATSConnection(config infra.Config, shardIDGen sharding.IDGenerator) Con
 		config:     config,
 		shardIDGen: shardIDGen,
 		opts:       opts,
-		subs:       map[interface{}]bool{},
+		publishCh:  make(chan interface{}),
 		ready:      make(chan struct{}),
 	}
 }
@@ -42,11 +41,9 @@ type natsConnection struct {
 	config     infra.Config
 	shardIDGen sharding.IDGenerator
 	opts       nats.Options
+	publishCh  chan interface{}
 	nc         *nats.Conn
 	ready      chan struct{}
-
-	mu   sync.Mutex
-	subs map[interface{}]bool
 }
 
 // Run is a task which closes connection whenever context is canceled
@@ -65,32 +62,36 @@ func (conn *natsConnection) Run(ctx context.Context) error {
 	defer conn.nc.Close()
 
 	log.Info("Connected to NATS")
-
 	close(conn.ready)
 
-	<-ctx.Done()
+	log.Info("Starting incoming loop")
+	defer log.Info("Terminating NATS connection")
 
-	log.Info("Terminating NATS connection")
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case msg := <-conn.publishCh:
+			log.Debug("Sending message", zap.Any("msg", msg))
 
-	return ctx.Err()
+			// Publish method of NATS doesn't send message over the network, it only buffers it.
+			// If it fails it means there is a serious problem on the server (no more memory etc.)
+			// So I decided it's better to panic in this case rather than hide the real issue in retry loop
+			if err := conn.nc.Publish(topicForValue(msg), must.Bytes(json.Marshal(msg))); err != nil {
+				panic(err)
+			}
+		}
+	}
 }
 
 // Subscribe subscribes to the type-specific topic, receives messages from there and distributes them between receiving channels
-func (conn *natsConnection) Subscribe(ctx context.Context, templatePtr Entity, recvChs []RecvCh) error {
+func (conn *natsConnection) Subscribe(ctx context.Context, templatePtr Entity, recvChs []chan<- interface{}) error {
 	if err := waitReady(ctx, conn.ready); err != nil {
 		return err
 	}
 
 	templateValue := reflect.ValueOf(templatePtr).Elem()
-
-	conn.mu.Lock()
-	defer conn.mu.Unlock()
-
 	topic := topicForValue(templatePtr)
-	if conn.subs[topic] {
-		return fmt.Errorf("subscription to topic %s already exists", topic)
-	}
-	conn.subs[topic] = true
 
 	log := logger.Get(ctx).With(zap.String("topic", topic))
 	log.Info("Subscribing to topic")
@@ -121,12 +122,9 @@ func (conn *natsConnection) Subscribe(ctx context.Context, templatePtr Entity, r
 	return nil
 }
 
-// Publish sends message to the topic
-func (conn *natsConnection) Publish(ctx context.Context, msg interface{}) error {
-	if err := waitReady(ctx, conn.ready); err != nil {
-		return err
-	}
-	return conn.nc.Publish(topicForValue(msg), must.Bytes(json.Marshal(msg)))
+// PublishCh returns channel used to publish messages
+func (conn *natsConnection) PublishCh() chan<- interface{} {
+	return conn.publishCh
 }
 
 func topicForValue(val interface{}) string {

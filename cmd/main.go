@@ -36,18 +36,19 @@ func main() {
 		return parallel.Run(ctx, func(ctx context.Context, spawn parallel.SpawnFn) error {
 			spawn("bus", parallel.Fail, conn.Run)
 
-			localShardChs := make([]bus.RecvCh, 0, config.NumOfLocalShards)
+			tx := conn.PublishCh()
+			rxs := make([]chan<- interface{}, 0, config.NumOfLocalShards)
 			for i := uint64(0); i < config.NumOfLocalShards; i++ {
-				localShardCh := make(chan interface{}, localShardBufferSize)
-				localShardChs = append(localShardChs, localShardCh)
+				rx := make(chan interface{}, localShardBufferSize)
+				rxs = append(rxs, rx)
 
-				spawn(fmt.Sprintf("localShard-%d", i), parallel.Fail, localShard(i, localShardCh, conn))
+				spawn(fmt.Sprintf("localShard-%d", i), parallel.Fail, localShard(i, rx, tx))
 			}
 
-			if err := conn.Subscribe(ctx, &wire.AlarmStatusChanged{}, localShardChs); err != nil {
+			if err := conn.Subscribe(ctx, &wire.AlarmStatusChanged{}, rxs); err != nil {
 				return err
 			}
-			return conn.Subscribe(ctx, &wire.SendAlarmDigest{}, localShardChs)
+			return conn.Subscribe(ctx, &wire.SendAlarmDigest{}, rxs)
 		})
 	})
 }
@@ -67,7 +68,7 @@ type alarmStatus struct {
 	ToSend bool
 }
 
-func localShard(i uint64, ch <-chan interface{}, conn bus.Connection) parallel.Task {
+func localShard(i uint64, rx <-chan interface{}, tx chan<- interface{}) parallel.Task {
 	return func(ctx context.Context) error {
 		log := logger.Get(ctx).With(zap.Uint64("localShardIndex", i))
 
@@ -77,7 +78,7 @@ func localShard(i uint64, ch <-chan interface{}, conn bus.Connection) parallel.T
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
-			case msg := <-ch:
+			case msg := <-rx:
 				log := log.With(zap.Any("message", msg))
 				switch m := msg.(type) {
 				case wire.AlarmStatusChanged:
@@ -140,16 +141,13 @@ func localShard(i uint64, ch <-chan interface{}, conn bus.Connection) parallel.T
 						return active.ActiveAlarms[i].LatestChangedAt.Before(active.ActiveAlarms[j].LatestChangedAt)
 					})
 
-					// Publish method of NATS doesn't send message over the network, it only buffers it.
-					// If it fails it means there is a serious problem on the server (no more memory etc.)
-					// So I decided it's better to panic in this case rather than hide the real issue in retry loop
-					if err := conn.Publish(ctx, active); err != nil {
-						panic(err)
-					}
+					tx <- active
 
 					for _, alarm := range sent {
 						alarm.ToSend = false
 					}
+
+					log.Info("Alarms sent", zap.Any("alarms", active))
 
 				default:
 					panic(fmt.Errorf("message of unknown type %T received", msg))
