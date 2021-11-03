@@ -5,7 +5,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/spf13/pflag"
-	"github.com/wojciech-malota-wojcik/netdata-digest/infra/sharding"
+	"github.com/wojciech-malota-wojcik/netdata/infra/sharding"
 )
 
 // NewConfigFromCLI creates new config based on CLI flags

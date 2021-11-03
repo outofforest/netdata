@@ -6,7 +6,7 @@ import (
 	"os/exec"
 
 	"github.com/wojciech-malota-wojcik/build"
-	"github.com/wojciech-malota-wojcik/netdata-digest/lib/run"
+	"github.com/wojciech-malota-wojcik/netdata/lib/run"
 )
 
 func goBuildPkg(ctx context.Context, pkg, out string, cgo bool) error {

@@ -8,8 +8,8 @@ import (
 	"github.com/ridge/must"
 	"github.com/wojciech-malota-wojcik/build"
 	"github.com/wojciech-malota-wojcik/ioc"
-	me "github.com/wojciech-malota-wojcik/netdata-digest/build"
-	"github.com/wojciech-malota-wojcik/netdata-digest/lib/run"
+	me "github.com/wojciech-malota-wojcik/netdata/build"
+	"github.com/wojciech-malota-wojcik/netdata/lib/run"
 )
 
 func main() {

@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os/exec"
 
-	"github.com/wojciech-malota-wojcik/netdata-digest/lib/run"
+	"github.com/wojciech-malota-wojcik/netdata/lib/run"
 )
 
 func gitFetch(ctx context.Context) error {
