@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/ridge/parallel"
-	digest "github.com/wojciech-malota-wojcik/netdata-digest"
+	"github.com/wojciech-malota-wojcik/ioc"
 	"github.com/wojciech-malota-wojcik/netdata-digest/infra"
 	"github.com/wojciech-malota-wojcik/netdata-digest/infra/bus"
 	"github.com/wojciech-malota-wojcik/netdata-digest/infra/wire"
@@ -13,8 +13,18 @@ import (
 	"go.uber.org/zap"
 )
 
+// iocBuilder configures IoC container
+func iocBuilder(c *ioc.Container) {
+	c.Singleton(infra.NewConfigFromCLI)
+	c.Transient(bus.NewNATSConnection)
+}
+
 func main() {
-	run.Service("digest", digest.IoC, func(ctx context.Context, config infra.Config, conn bus.Connection) error {
+	run.Service("digest", iocBuilder, func(ctx context.Context, config infra.Config, conn bus.Connection) error {
+		if !config.VerboseLogging {
+			logger.VerboseOff()
+		}
+
 		return parallel.Run(ctx, func(ctx context.Context, spawn parallel.SpawnFn) error {
 			spawn("bus", parallel.Fail, conn.Run)
 			spawn("incomingUpdates", parallel.Fail, func(ctx context.Context) error {
