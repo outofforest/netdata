@@ -5,13 +5,22 @@ import (
 	"fmt"
 
 	"github.com/ridge/parallel"
+	"github.com/wojciech-malota-wojcik/ioc"
 	"github.com/wojciech-malota-wojcik/netdata/infra"
 	"github.com/wojciech-malota-wojcik/netdata/infra/bus"
+	"github.com/wojciech-malota-wojcik/netdata/infra/sharding"
 	"github.com/wojciech-malota-wojcik/netdata/infra/wire"
 	"github.com/wojciech-malota-wojcik/netdata/lib/logger"
 )
 
 const localShardBufferSize = 100
+
+// IoCBuilder configures IoC container
+func IoCBuilder(c *ioc.Container) {
+	c.Singleton(infra.NewConfigFromCLI)
+	c.Transient(sharding.NewXORModuloIDGenerator)
+	c.Singleton(bus.NewNATSConnection)
+}
 
 // App is the main function running application logic
 func App(ctx context.Context, config infra.Config, conn bus.Connection) error {
