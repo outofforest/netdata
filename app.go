@@ -10,6 +10,7 @@ import (
 	"github.com/wojciech-malota-wojcik/netdata/infra/bus"
 	"github.com/wojciech-malota-wojcik/netdata/infra/sharding"
 	"github.com/wojciech-malota-wojcik/netdata/infra/wire"
+	"github.com/wojciech-malota-wojcik/netdata/lib/libctx"
 	"github.com/wojciech-malota-wojcik/netdata/lib/logger"
 )
 
@@ -41,9 +42,12 @@ func App(ctx context.Context, config infra.Config, conn bus.Connection) error {
 		spawn("localShards", parallel.Fail, func(ctx context.Context) error {
 			defer close(tx)
 
+			ctx, cancel := context.WithCancel(libctx.Reopen(ctx))
+			defer cancel()
+
 			return parallel.Run(ctx, func(ctx context.Context, spawn parallel.SpawnFn) error {
 				for i, rx := range rxes {
-					spawn(fmt.Sprintf("%d", i), parallel.Fail, runLocalShard(uint64(i), rx, tx))
+					spawn(fmt.Sprintf("%d", i), parallel.Exit, runLocalShard(uint64(i), rx, tx))
 				}
 				return nil
 			})
