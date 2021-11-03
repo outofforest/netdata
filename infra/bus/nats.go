@@ -75,25 +75,26 @@ func (conn *natsConnection) Run(ctx context.Context) error {
 	return ctx.Err()
 }
 
-// Subscribe subscribes to topic and decodes received messages
-func (conn *natsConnection) Subscribe(ctx context.Context, templatePtr Entity) (OnRecvCh, error) {
+// Subscribe subscribes to the type-specific topic, receives messages from there and distributes them between receiving channels
+func (conn *natsConnection) Subscribe(ctx context.Context, templatePtr Entity, recvChs []RecvCh) error {
 	if err := waitReady(ctx, conn.ready); err != nil {
-		return nil, err
+		return err
 	}
+
+	templateValue := reflect.ValueOf(templatePtr).Elem()
 
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
 	topic := topicForValue(templatePtr)
 	if conn.subs[topic] {
-		return nil, fmt.Errorf("subscription to topic %s already exists", topic)
+		return fmt.Errorf("subscription to topic %s already exists", topic)
 	}
 	conn.subs[topic] = true
 
 	log := logger.Get(ctx).With(zap.String("topic", topic))
 	log.Info("Subscribing to topic")
 
-	recvCh := make(chan chan<- struct{})
 	if _, err := conn.nc.Subscribe(topic, func(m *nats.Msg) {
 		log.Debug("Message received", zap.ByteString("msg", m.Data))
 		if err := json.Unmarshal(m.Data, templatePtr); err != nil {
@@ -104,21 +105,20 @@ func (conn *natsConnection) Subscribe(ctx context.Context, templatePtr Entity) (
 			log.Error("Received entity is in invalid state", zap.Error(err))
 			return
 		}
-		shardIDs := conn.shardIDGen.Generate(templatePtr.ShardSeed(), conn.config.NumOfShards)
+		shardIDs := conn.shardIDGen.Generate(templatePtr.ShardSeed(), conn.config.NumOfShards, uint64(len(recvChs)))
 		if shardID := shardIDs[0]; shardID != conn.config.ShardID {
 			log.Debug("Entity not for this shard received, ignoring", zap.Any("dstShardID", shardID), zap.Any("shardID", conn.config.ShardID))
 			return
 		}
 
-		msgCh := make(chan struct{})
-		recvCh <- msgCh
-		_ = waitReady(ctx, msgCh)
+		localShardID := shardIDs[1]
+		recvChs[localShardID] <- templateValue.Interface()
 	}); err != nil {
-		return nil, fmt.Errorf("subscription failed: %w", err)
+		return fmt.Errorf("subscription failed: %w", err)
 	}
 
 	log.Info("Subscribed to topic")
-	return recvCh, nil
+	return nil
 }
 
 // Publish sends message to the topic
