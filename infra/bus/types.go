@@ -30,7 +30,7 @@ type Connection interface {
 
 // Dispatcher decodes, validates and sends message to local shard
 type Dispatcher interface {
-	Dispatch(msg []byte)
+	Dispatch(ctx context.Context, msg []byte)
 }
 
 // DispatcherFactory creates dispatchers

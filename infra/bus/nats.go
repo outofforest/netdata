@@ -105,7 +105,7 @@ func (conn *natsConnection) Subscribe(ctx context.Context, templatePtr Entity, r
 
 			spawn("handler", parallel.Fail, func(ctx context.Context) error {
 				for m := range msgCh {
-					dispatcher.Dispatch(m.Data)
+					dispatcher.Dispatch(ctx, m.Data)
 				}
 				return ctx.Err()
 			})

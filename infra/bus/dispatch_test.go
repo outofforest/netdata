@@ -1,6 +1,7 @@
 package bus
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -33,6 +34,8 @@ func (e entity) Validate() error {
 }
 
 func TestDispatcherFactory(t *testing.T) {
+	ctx := context.Background()
+
 	// Setup
 
 	config := infra.Config{
@@ -61,7 +64,7 @@ func TestDispatcherFactory(t *testing.T) {
 
 	// Action 1 - correct channel
 
-	disp.Dispatch([]byte("{}"))
+	disp.Dispatch(ctx, []byte("{}"))
 	require.Len(t, chs[1], 1)
 	assert.Equal(t, *e, <-chs[1])
 
@@ -69,20 +72,20 @@ func TestDispatcherFactory(t *testing.T) {
 
 	shardIDGen.ids = []sharding.ID{3, 2}
 
-	disp.Dispatch([]byte("{}"))
+	disp.Dispatch(ctx, []byte("{}"))
 	require.Len(t, chs[2], 1)
 	assert.Equal(t, *e, <-chs[2])
 
 	// Action 3 - invalid json
 
-	disp.Dispatch([]byte("{"))
+	disp.Dispatch(ctx, []byte("{"))
 	assert.Len(t, chs[2], 0)
 
 	// Action 4 - invalid entity
 
 	e.err = errors.New("error")
 
-	disp.Dispatch([]byte("{}"))
+	disp.Dispatch(ctx, []byte("{}"))
 	assert.Len(t, chs[2], 0)
 
 	// Action 5 - not my shard
@@ -92,6 +95,6 @@ func TestDispatcherFactory(t *testing.T) {
 	df = NewDispatcherFactory(config, shardIDGen)
 	disp = df.Create(e, recvChs, logger.New())
 
-	disp.Dispatch([]byte("{}"))
+	disp.Dispatch(ctx, []byte("{}"))
 	assert.Len(t, chs[2], 0)
 }

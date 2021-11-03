@@ -1,6 +1,7 @@
 package bus
 
 import (
+	"context"
 	"encoding/json"
 	"reflect"
 
@@ -44,7 +45,7 @@ type dispatcher struct {
 	recvChs       []chan<- interface{}
 }
 
-func (d *dispatcher) Dispatch(msg []byte) {
+func (d *dispatcher) Dispatch(ctx context.Context, msg []byte) {
 	d.log.Debug("Message received", zap.ByteString("msg", msg))
 	if err := json.Unmarshal(msg, d.templatePtr); err != nil {
 		d.log.Error("Decoding message failed", zap.Error(err))
@@ -61,5 +62,8 @@ func (d *dispatcher) Dispatch(msg []byte) {
 	}
 
 	localShardID := shardIDs[1]
-	d.recvChs[localShardID] <- d.templateValue.Interface()
+	select {
+	case <-ctx.Done():
+	case d.recvChs[localShardID] <- d.templateValue.Interface():
+	}
 }
