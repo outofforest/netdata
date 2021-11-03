@@ -31,11 +31,13 @@ type alarmStatus struct {
 func runLocalShard(i uint64, rx <-chan interface{}, tx chan<- interface{}) parallel.Task {
 	return func(ctx context.Context) error {
 		log := logger.Get(ctx).With(zap.Uint64("localShardIndex", i))
+		log.Info("Local shard started")
 
 		users := userList{}
 
 		for msg := range rx {
-			log := log.With(zap.Any("message", msg))
+			log := log.With(zap.Any("msg", msg))
+
 			switch m := msg.(type) {
 			case wire.AlarmStatusChanged:
 				alarms := users[m.UserID]
@@ -106,7 +108,7 @@ func runLocalShard(i uint64, rx <-chan interface{}, tx chan<- interface{}) paral
 				log.Info("Alarms sent", zap.Any("alarms", active))
 
 			default:
-				panic(fmt.Errorf("message of unknown type %T received", msg))
+				log.Warn(fmt.Sprintf("Message of unknown type %T received", msg))
 			}
 		}
 		return ctx.Err()

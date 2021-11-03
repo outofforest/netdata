@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/ridge/parallel"
+	"go.uber.org/zap"
 )
 
 // Entity is implemented by structures which may be received from event bus
@@ -25,4 +26,14 @@ type Connection interface {
 
 	// PublishCh returns channel used to publish messages
 	PublishCh() chan<- interface{}
+}
+
+// Dispatcher decodes, validates and sends message to local shard
+type Dispatcher interface {
+	Dispatch(msg []byte)
+}
+
+// DispatcherFactory creates dispatchers
+type DispatcherFactory interface {
+	Create(templatePtr Entity, recvChs []chan<- interface{}, log *zap.Logger) Dispatcher
 }

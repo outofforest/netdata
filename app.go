@@ -19,6 +19,7 @@ const localShardBufferSize = 100
 func IoCBuilder(c *ioc.Container) {
 	c.Singleton(infra.NewConfigFromCLI)
 	c.Transient(sharding.NewXORModuloIDGenerator)
+	c.Transient(bus.NewDispatcherFactory)
 	c.Singleton(bus.NewNATSConnection)
 }
 
