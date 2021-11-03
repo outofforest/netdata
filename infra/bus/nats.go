@@ -10,6 +10,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/ridge/must"
+	"github.com/ridge/parallel"
 	"github.com/wojciech-malota-wojcik/netdata/infra"
 	"github.com/wojciech-malota-wojcik/netdata/infra/sharding"
 	"github.com/wojciech-malota-wojcik/netdata/lib/logger"
@@ -67,59 +68,76 @@ func (conn *natsConnection) Run(ctx context.Context) error {
 	log.Info("Starting incoming loop")
 	defer log.Info("Terminating NATS connection")
 
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case msg := <-conn.publishCh:
-			log.Debug("Sending message", zap.Any("msg", msg))
+	for msg := range conn.publishCh {
+		log.Debug("Sending message", zap.Any("msg", msg))
 
-			// Publish method of NATS doesn't send message over the network, it only buffers it.
-			// If it fails it means there is a serious problem on the server (no more memory etc.)
-			// So I decided it's better to panic in this case rather than hide the real issue in retry loop
-			if err := conn.nc.Publish(topicForValue(msg), must.Bytes(json.Marshal(msg))); err != nil {
-				panic(err)
-			}
+		// Publish method of NATS doesn't send message over the network, it only buffers it.
+		// If it fails it means there is a serious problem on the server (no more memory etc.)
+		// So I decided it's better to panic in this case rather than hide the real issue in retry loop
+		if err := conn.nc.Publish(topicForValue(msg), must.Bytes(json.Marshal(msg))); err != nil {
+			panic(err)
 		}
 	}
+
+	return ctx.Err()
 }
 
-// Subscribe subscribes to the type-specific topic, receives messages from there and distributes them between receiving channels
-func (conn *natsConnection) Subscribe(ctx context.Context, templatePtr Entity, recvChs []chan<- interface{}) error {
-	if err := waitReady(ctx, conn.ready); err != nil {
-		return err
+// Subscribe returns task subscribing to the type-specific topic, receiving messages from there and distributing them between receiving channels
+func (conn *natsConnection) Subscribe(ctx context.Context, templatePtr Entity, recvChs []chan<- interface{}) parallel.Task {
+	return func(ctx context.Context) error {
+		if err := waitReady(ctx, conn.ready); err != nil {
+			return err
+		}
+
+		templateValue := reflect.ValueOf(templatePtr).Elem()
+		topic := topicForValue(templatePtr)
+
+		return parallel.Run(ctx, func(ctx context.Context, spawn parallel.SpawnFn) error {
+			log := logger.Get(ctx).With(zap.String("topic", topic))
+			log.Info("Subscribing to topic")
+
+			msgCh := make(chan *nats.Msg)
+			sub, err := conn.nc.ChanSubscribe(topic, msgCh)
+			if err != nil {
+				return fmt.Errorf("subscription failed: %w", err)
+			}
+
+			spawn("handler", parallel.Fail, func(ctx context.Context) error {
+				for m := range msgCh {
+					log.Debug("Message received", zap.ByteString("msg", m.Data))
+					if err := json.Unmarshal(m.Data, templatePtr); err != nil {
+						log.Error("Decoding message failed", zap.Error(err))
+						continue
+					}
+					if err := templatePtr.Validate(); err != nil {
+						log.Error("Received entity is in invalid state", zap.Error(err))
+						continue
+					}
+					shardIDs := conn.shardIDGen.Generate(templatePtr.ShardSeed(), conn.config.NumOfShards, uint64(len(recvChs)))
+					if shardID := shardIDs[0]; shardID != conn.config.ShardID {
+						log.Debug("Entity not for this shard received, ignoring", zap.Any("dstShardID", shardID), zap.Any("shardID", conn.config.ShardID))
+						continue
+					}
+
+					localShardID := shardIDs[1]
+					recvChs[localShardID] <- templateValue.Interface()
+				}
+				return ctx.Err()
+			})
+			spawn("closer", parallel.Fail, func(ctx context.Context) error {
+				defer close(msgCh)
+
+				<-ctx.Done()
+				if err := sub.Drain(); err != nil {
+					return err
+				}
+				return ctx.Err()
+			})
+
+			log.Info("Subscribed to topic")
+			return nil
+		})
 	}
-
-	templateValue := reflect.ValueOf(templatePtr).Elem()
-	topic := topicForValue(templatePtr)
-
-	log := logger.Get(ctx).With(zap.String("topic", topic))
-	log.Info("Subscribing to topic")
-
-	if _, err := conn.nc.Subscribe(topic, func(m *nats.Msg) {
-		log.Debug("Message received", zap.ByteString("msg", m.Data))
-		if err := json.Unmarshal(m.Data, templatePtr); err != nil {
-			log.Error("Decoding message failed", zap.Error(err))
-			return
-		}
-		if err := templatePtr.Validate(); err != nil {
-			log.Error("Received entity is in invalid state", zap.Error(err))
-			return
-		}
-		shardIDs := conn.shardIDGen.Generate(templatePtr.ShardSeed(), conn.config.NumOfShards, uint64(len(recvChs)))
-		if shardID := shardIDs[0]; shardID != conn.config.ShardID {
-			log.Debug("Entity not for this shard received, ignoring", zap.Any("dstShardID", shardID), zap.Any("shardID", conn.config.ShardID))
-			return
-		}
-
-		localShardID := shardIDs[1]
-		recvChs[localShardID] <- templateValue.Interface()
-	}); err != nil {
-		return fmt.Errorf("subscription failed: %w", err)
-	}
-
-	log.Info("Subscribed to topic")
-	return nil
 }
 
 // PublishCh returns channel used to publish messages

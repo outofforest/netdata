@@ -29,20 +29,43 @@ func App(ctx context.Context, config infra.Config, conn bus.Connection) error {
 	}
 
 	return parallel.Run(ctx, func(ctx context.Context, spawn parallel.SpawnFn) error {
-		spawn("bus", parallel.Fail, conn.Run)
-
 		tx := conn.PublishCh()
-		rxs := make([]chan<- interface{}, 0, config.NumOfLocalShards)
+		rxes := make([]chan interface{}, 0, config.NumOfLocalShards)
 		for i := uint64(0); i < config.NumOfLocalShards; i++ {
 			rx := make(chan interface{}, localShardBufferSize)
-			rxs = append(rxs, rx)
-
-			spawn(fmt.Sprintf("localShard-%d", i), parallel.Fail, runLocalShard(i, rx, tx))
+			rxes = append(rxes, rx)
 		}
 
-		if err := conn.Subscribe(ctx, &wire.AlarmStatusChanged{}, rxs); err != nil {
-			return err
-		}
-		return conn.Subscribe(ctx, &wire.SendAlarmDigest{}, rxs)
+		spawn("bus", parallel.Fail, conn.Run)
+		spawn("localShards", parallel.Fail, func(ctx context.Context) error {
+			defer close(tx)
+
+			return parallel.Run(ctx, func(ctx context.Context, spawn parallel.SpawnFn) error {
+				for i, rx := range rxes {
+					spawn(fmt.Sprintf("%d", i), parallel.Fail, runLocalShard(uint64(i), rx, tx))
+				}
+				return nil
+			})
+		})
+		spawn("subscriptions", parallel.Fail, func(ctx context.Context) error {
+			// Converting []chan interface{} to []chan<- interface{}
+			txes := make([]chan<- interface{}, 0, len(rxes))
+			for _, tx := range rxes {
+				txes = append(txes, tx)
+			}
+
+			defer func() {
+				for _, tx := range txes {
+					close(tx)
+				}
+			}()
+
+			return parallel.Run(ctx, func(ctx context.Context, spawn parallel.SpawnFn) error {
+				spawn("subscription-rx", parallel.Fail, conn.Subscribe(ctx, &wire.AlarmStatusChanged{}, txes))
+				spawn("subscription-tx", parallel.Fail, conn.Subscribe(ctx, &wire.SendAlarmDigest{}, txes))
+				return nil
+			})
+		})
+		return nil
 	})
 }
