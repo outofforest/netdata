@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/wojciech-malota-wojcik/netdata-digest/infra"
 )
 
 // UserID is the user ID
@@ -26,10 +28,32 @@ const (
 	StatusCritical Status = "CRITICAL"
 )
 
-// AlarmStatusChanged is the incoming AlarmStatusChanged message
-type AlarmStatusChanged struct {
+// ShardedEntity is data entity which is a subject of sharding
+type ShardedEntity struct {
 	// UserID is the user ID
 	UserID UserID
+
+	shardPreID uint64
+}
+
+// ShardSeed generates a seed used to compute shard ID
+func (e *ShardedEntity) ShardSeed() []byte {
+	return []byte(e.UserID)
+}
+
+// SetShardPreID sets shard pre ID
+func (e *ShardedEntity) SetShardPreID(shardPreID uint64) {
+	e.shardPreID = shardPreID
+}
+
+// ShardID computes shard ID from preID
+func (e *ShardedEntity) ShardID(numOfShards uint64) infra.ShardID {
+	return infra.ShardID(e.shardPreID % numOfShards)
+}
+
+// AlarmStatusChanged is the incoming AlarmStatusChanged message
+type AlarmStatusChanged struct {
+	ShardedEntity
 
 	// AlarmID is the alarm ID
 	AlarmID AlarmID
@@ -57,8 +81,7 @@ func (o AlarmStatusChanged) Validate() error {
 
 // SendAlarmDigest is the incoming SendAlarmDigest message
 type SendAlarmDigest struct {
-	// UserID is the user ID
-	UserID UserID
+	ShardedEntity
 }
 
 // Validate validates if message contains valid data
