@@ -110,7 +110,11 @@ func runLocalShard(i uint64, rx <-chan interface{}, tx chan<- interface{}) paral
 						return active.ActiveAlarms[i].LatestChangedAt.Before(active.ActiveAlarms[j].LatestChangedAt)
 					})
 
-					tx <- active
+					select {
+					case <-ctx.Done():
+						return ctx.Err()
+					case tx <- active:
+					}
 
 					for _, alarm := range sent {
 						alarm.ToSend = false
