@@ -12,14 +12,13 @@ import (
 	"github.com/ridge/must"
 	"github.com/ridge/parallel"
 	"github.com/wojciech-malota-wojcik/netdata/infra"
-	"github.com/wojciech-malota-wojcik/netdata/infra/sharding"
 	"github.com/wojciech-malota-wojcik/netdata/lib/logger"
 	"github.com/wojciech-malota-wojcik/netdata/lib/retry"
 	"go.uber.org/zap"
 )
 
 // NewNATSConnection creates new NATS connection
-func NewNATSConnection(config infra.Config, shardIDGen sharding.IDGenerator) Connection {
+func NewNATSConnection(config infra.Config, dispatcherF DispatcherFactory) Connection {
 	opts := nats.GetDefaultOptions()
 	opts.Url = strings.Join(config.NATSAddresses, ",")
 	opts.Name = "Netdata"
@@ -29,22 +28,22 @@ func NewNATSConnection(config infra.Config, shardIDGen sharding.IDGenerator) Con
 	opts.NoEcho = true
 	opts.Verbose = config.VerboseLogging
 	return &natsConnection{
-		config:     config,
-		shardIDGen: shardIDGen,
-		opts:       opts,
-		publishCh:  make(chan interface{}),
-		ready:      make(chan struct{}),
+		config:      config,
+		dispatcherF: dispatcherF,
+		opts:        opts,
+		publishCh:   make(chan interface{}),
+		ready:       make(chan struct{}),
 	}
 }
 
 // natsConnection is NATS-specific implementation of Connection interface
 type natsConnection struct {
-	config     infra.Config
-	shardIDGen sharding.IDGenerator
-	opts       nats.Options
-	publishCh  chan interface{}
-	nc         *nats.Conn
-	ready      chan struct{}
+	config      infra.Config
+	dispatcherF DispatcherFactory
+	opts        nats.Options
+	publishCh   chan interface{}
+	nc          *nats.Conn
+	ready       chan struct{}
 }
 
 // Run is a task which closes connection whenever context is canceled
@@ -65,8 +64,9 @@ func (conn *natsConnection) Run(ctx context.Context) error {
 	log.Info("Connected to NATS")
 	close(conn.ready)
 
-	log.Info("Starting incoming loop")
 	defer log.Info("Terminating NATS connection")
+
+	log.Info("Starting outgoing loop")
 
 	for msg := range conn.publishCh {
 		log.Debug("Sending message", zap.Any("msg", msg))
@@ -89,12 +89,13 @@ func (conn *natsConnection) Subscribe(ctx context.Context, templatePtr Entity, r
 			return err
 		}
 
-		templateValue := reflect.ValueOf(templatePtr).Elem()
-		topic := topicForValue(templatePtr)
-
 		return parallel.Run(ctx, func(ctx context.Context, spawn parallel.SpawnFn) error {
+			topic := topicForValue(templatePtr)
+
 			log := logger.Get(ctx).With(zap.String("topic", topic))
 			log.Info("Subscribing to topic")
+
+			dispatcher := conn.dispatcherF.Create(templatePtr, recvChs, log)
 
 			msgCh := make(chan *nats.Msg)
 			sub, err := conn.nc.ChanSubscribe(topic, msgCh)
@@ -104,23 +105,7 @@ func (conn *natsConnection) Subscribe(ctx context.Context, templatePtr Entity, r
 
 			spawn("handler", parallel.Fail, func(ctx context.Context) error {
 				for m := range msgCh {
-					log.Debug("Message received", zap.ByteString("msg", m.Data))
-					if err := json.Unmarshal(m.Data, templatePtr); err != nil {
-						log.Error("Decoding message failed", zap.Error(err))
-						continue
-					}
-					if err := templatePtr.Validate(); err != nil {
-						log.Error("Received entity is in invalid state", zap.Error(err))
-						continue
-					}
-					shardIDs := conn.shardIDGen.Generate(templatePtr.ShardSeed(), conn.config.NumOfShards, uint64(len(recvChs)))
-					if shardID := shardIDs[0]; shardID != conn.config.ShardID {
-						log.Debug("Entity not for this shard received, ignoring", zap.Any("dstShardID", shardID), zap.Any("shardID", conn.config.ShardID))
-						continue
-					}
-
-					localShardID := shardIDs[1]
-					recvChs[localShardID] <- templateValue.Interface()
+					dispatcher.Dispatch(m.Data)
 				}
 				return ctx.Err()
 			})
