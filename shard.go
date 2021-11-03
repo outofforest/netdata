@@ -102,6 +102,10 @@ func runLocalShard(i uint64, rx <-chan interface{}, tx chan<- interface{}) paral
 						}
 					}
 
+					if len(active.ActiveAlarms) == 0 {
+						continue
+					}
+
 					sort.Slice(active.ActiveAlarms, func(i int, j int) bool {
 						return active.ActiveAlarms[i].LatestChangedAt.Before(active.ActiveAlarms[j].LatestChangedAt)
 					})
