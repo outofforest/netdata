@@ -3,10 +3,8 @@ package infra
 import (
 	"github.com/nats-io/nats.go"
 	"github.com/spf13/pflag"
+	"github.com/wojciech-malota-wojcik/netdata-digest/infra/sharding"
 )
-
-// ShardID is the ID of the shard
-type ShardID uint64
 
 // NewConfigFromCLI creates new config based on CLI flags
 func NewConfigFromCLI() Config {
@@ -18,7 +16,7 @@ func NewConfigFromCLI() Config {
 	pflag.BoolVarP(&cfg.VerboseLogging, "verbose", "v", false, "Turns on verbose logging")
 	pflag.Parse()
 
-	cfg.ShardID = ShardID(shardID)
+	cfg.ShardID = sharding.ID(shardID)
 
 	if shardID >= cfg.NumOfShards {
 		panic("shard ID has to be less than number of shards")
@@ -30,7 +28,7 @@ func NewConfigFromCLI() Config {
 // Config stores configuration
 type Config struct {
 	// ShardID is the shard ID of the node
-	ShardID ShardID
+	ShardID sharding.ID
 
 	// NumOfShards is the total number of running shards
 	NumOfShards uint64

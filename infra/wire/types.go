@@ -4,8 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"time"
-
-	"github.com/wojciech-malota-wojcik/netdata-digest/infra"
 )
 
 // UserID is the user ID
@@ -32,23 +30,11 @@ const (
 type ShardedEntity struct {
 	// UserID is the user ID
 	UserID UserID
-
-	shardPreID uint64
 }
 
 // ShardSeed generates a seed used to compute shard ID
 func (e *ShardedEntity) ShardSeed() []byte {
 	return []byte(e.UserID)
-}
-
-// SetShardPreID sets shard pre ID
-func (e *ShardedEntity) SetShardPreID(shardPreID uint64) {
-	e.shardPreID = shardPreID
-}
-
-// ShardID computes shard ID from preID
-func (e *ShardedEntity) ShardID(numOfShards uint64) infra.ShardID {
-	return infra.ShardID(e.shardPreID % numOfShards)
 }
 
 // AlarmStatusChanged is the incoming AlarmStatusChanged message
