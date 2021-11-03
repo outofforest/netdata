@@ -3,7 +3,6 @@ package netdata
 import (
 	"context"
 	"fmt"
-	"github.com/wojciech-malota-wojcik/netdata/lib/libctx"
 
 	"github.com/ridge/parallel"
 	"github.com/wojciech-malota-wojcik/ioc"
@@ -11,6 +10,7 @@ import (
 	"github.com/wojciech-malota-wojcik/netdata/infra/bus"
 	"github.com/wojciech-malota-wojcik/netdata/infra/sharding"
 	"github.com/wojciech-malota-wojcik/netdata/infra/wire"
+	"github.com/wojciech-malota-wojcik/netdata/lib/libctx"
 	"github.com/wojciech-malota-wojcik/netdata/lib/logger"
 )
 
