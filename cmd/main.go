@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 
+	"github.com/wojciech-malota-wojcik/netdata-digest/infra/sharding"
+
 	"github.com/ridge/parallel"
 	"github.com/wojciech-malota-wojcik/ioc"
 	"github.com/wojciech-malota-wojcik/netdata-digest/infra"
@@ -16,6 +18,7 @@ import (
 // iocBuilder configures IoC container
 func iocBuilder(c *ioc.Container) {
 	c.Singleton(infra.NewConfigFromCLI)
+	c.Transient(sharding.NewXORModuloIDGenerator)
 	c.Transient(bus.NewNATSConnection)
 }
 

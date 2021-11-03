@@ -2,20 +2,12 @@ package bus
 
 import (
 	"context"
-
-	"github.com/wojciech-malota-wojcik/netdata-digest/infra"
 )
 
 // Entity is implemented by structures which may be received from event bus
 type Entity interface {
 	// ShardSeed generates a seed used to compute shard ID
 	ShardSeed() []byte
-
-	// SetShardPreID sets shard pre ID
-	SetShardPreID(shardPreID uint64)
-
-	// ShardID computes shard ID from preID
-	ShardID(numOfShards uint64) infra.ShardID
 
 	// Validate validates if message contains valid data
 	Validate() error

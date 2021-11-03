@@ -12,13 +12,14 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/ridge/must"
 	"github.com/wojciech-malota-wojcik/netdata-digest/infra"
+	"github.com/wojciech-malota-wojcik/netdata-digest/infra/sharding"
 	"github.com/wojciech-malota-wojcik/netdata-digest/lib/logger"
 	"github.com/wojciech-malota-wojcik/netdata-digest/lib/retry"
 	"go.uber.org/zap"
 )
 
 // NewNATSConnection creates new NATS connection
-func NewNATSConnection(config infra.Config) Connection {
+func NewNATSConnection(config infra.Config, shardIDGen sharding.IDGenerator) Connection {
 	opts := nats.GetDefaultOptions()
 	opts.Url = strings.Join(config.NATSAddresses, ",")
 	opts.Name = "Netdata"
@@ -28,19 +29,21 @@ func NewNATSConnection(config infra.Config) Connection {
 	opts.NoEcho = true
 	opts.Verbose = config.VerboseLogging
 	return &natsConnection{
-		config: config,
-		opts:   opts,
-		subs:   map[interface{}]bool{},
-		ready:  make(chan struct{}),
+		config:     config,
+		shardIDGen: shardIDGen,
+		opts:       opts,
+		subs:       map[interface{}]bool{},
+		ready:      make(chan struct{}),
 	}
 }
 
 // natsConnection is NATS-specific implementation of Connection interface
 type natsConnection struct {
-	config infra.Config
-	opts   nats.Options
-	nc     *nats.Conn
-	ready  chan struct{}
+	config     infra.Config
+	shardIDGen sharding.IDGenerator
+	opts       nats.Options
+	nc         *nats.Conn
+	ready      chan struct{}
 
 	mu   sync.Mutex
 	subs map[interface{}]bool
@@ -101,8 +104,8 @@ func (conn *natsConnection) Subscribe(ctx context.Context, templatePtr Entity) (
 			log.Error("Received entity is in invalid state", zap.Error(err))
 			return
 		}
-		templatePtr.SetShardPreID(deriveShardPreID(templatePtr.ShardSeed()))
-		if shardID := templatePtr.ShardID(conn.config.NumOfShards); shardID != conn.config.ShardID {
+		shardIDs := conn.shardIDGen.Generate(templatePtr.ShardSeed(), conn.config.NumOfShards)
+		if shardID := shardIDs[0]; shardID != conn.config.ShardID {
 			log.Debug("Entity not for this shard received, ignoring", zap.Any("dstShardID", shardID), zap.Any("shardID", conn.config.ShardID))
 			return
 		}
