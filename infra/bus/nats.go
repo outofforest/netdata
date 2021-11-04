@@ -12,7 +12,6 @@ import (
 	"github.com/ridge/must"
 	"github.com/ridge/parallel"
 	"github.com/wojciech-malota-wojcik/netdata/infra"
-	"github.com/wojciech-malota-wojcik/netdata/lib/libctx"
 	"github.com/wojciech-malota-wojcik/netdata/lib/logger"
 	"github.com/wojciech-malota-wojcik/netdata/lib/retry"
 	"go.uber.org/zap"
@@ -90,9 +89,6 @@ func (conn *natsConnection) Subscribe(ctx context.Context, templatePtr Entity, r
 			return err
 		}
 
-		ctx, cancel := context.WithCancel(libctx.Reopen(ctx))
-		defer cancel()
-
 		return parallel.Run(ctx, func(ctx context.Context, spawn parallel.SpawnFn) error {
 			topic := topicForValue(templatePtr)
 
@@ -108,14 +104,10 @@ func (conn *natsConnection) Subscribe(ctx context.Context, templatePtr Entity, r
 			}
 
 			spawn("handler", parallel.Fail, func(ctx context.Context) error {
-				for {
-					select {
-					case <-ctx.Done():
-						return ctx.Err()
-					case m := <-msgCh:
-						dispatcher.Dispatch(ctx, m.Data)
-					}
+				for m := range msgCh {
+					dispatcher.Dispatch(ctx, m.Data)
 				}
+				return ctx.Err()
 			})
 			spawn("closer", parallel.Fail, func(ctx context.Context) error {
 				defer close(msgCh)
