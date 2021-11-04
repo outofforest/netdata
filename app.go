@@ -47,7 +47,7 @@ func App(ctx context.Context, config infra.Config, conn bus.Connection) error {
 
 			return parallel.Run(ctx, func(ctx context.Context, spawn parallel.SpawnFn) error {
 				for i, rx := range rxes {
-					spawn(fmt.Sprintf("%d", i), parallel.Exit, runLocalShard(uint64(i), rx, tx))
+					spawn(fmt.Sprintf("%d", i), parallel.Continue, runLocalShard(uint64(i), rx, tx))
 				}
 				return nil
 			})
