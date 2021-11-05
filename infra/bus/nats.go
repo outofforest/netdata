@@ -31,7 +31,6 @@ func NewNATSConnection(config infra.Config, dispatcherF DispatcherFactory) Conne
 		config:      config,
 		dispatcherF: dispatcherF,
 		opts:        opts,
-		publishCh:   make(chan interface{}),
 		ready:       make(chan struct{}),
 	}
 }
@@ -41,45 +40,46 @@ type natsConnection struct {
 	config      infra.Config
 	dispatcherF DispatcherFactory
 	opts        nats.Options
-	publishCh   chan interface{}
 	nc          *nats.Conn
 	ready       chan struct{}
 }
 
-// Run is a task which closes connection whenever context is canceled
-func (conn *natsConnection) Run(ctx context.Context) error {
-	log := logger.Get(ctx).With(zap.String("servers", conn.opts.Url))
-	log.Info("Connecting to NATS")
+// Run is a task which maintains and closes connection
+func (conn *natsConnection) Run(publishCh <-chan interface{}) parallel.Task {
+	return func(ctx context.Context) error {
+		log := logger.Get(ctx).With(zap.String("servers", conn.opts.Url))
+		log.Info("Connecting to NATS")
 
-	_ = retry.Do(ctx, time.Second, func() error {
-		var err error
-		conn.nc, err = conn.opts.Connect()
-		if err != nil {
-			return retry.Retryable(fmt.Errorf("can't connect to NATS: %w", err))
+		_ = retry.Do(ctx, time.Second, func() error {
+			var err error
+			conn.nc, err = conn.opts.Connect()
+			if err != nil {
+				return retry.Retryable(fmt.Errorf("can't connect to NATS: %w", err))
+			}
+			return nil
+		})
+		defer conn.nc.Close()
+
+		log.Info("Connected to NATS")
+		close(conn.ready)
+
+		defer log.Info("Terminating NATS connection")
+
+		log.Info("Starting outgoing loop")
+
+		for msg := range publishCh {
+			log.Debug("Sending message", zap.Any("msg", msg))
+
+			// Publish method of NATS doesn't send message over the network, it only buffers it.
+			// If it fails it means there is a serious problem on the server (no more memory etc.)
+			// So I decided it's better to panic in this case rather than hide the real issue in retry loop
+			if err := conn.nc.Publish(topicForValue(msg), must.Bytes(json.Marshal(msg))); err != nil {
+				panic(err)
+			}
 		}
-		return nil
-	})
-	defer conn.nc.Close()
 
-	log.Info("Connected to NATS")
-	close(conn.ready)
-
-	defer log.Info("Terminating NATS connection")
-
-	log.Info("Starting outgoing loop")
-
-	for msg := range conn.publishCh {
-		log.Debug("Sending message", zap.Any("msg", msg))
-
-		// Publish method of NATS doesn't send message over the network, it only buffers it.
-		// If it fails it means there is a serious problem on the server (no more memory etc.)
-		// So I decided it's better to panic in this case rather than hide the real issue in retry loop
-		if err := conn.nc.Publish(topicForValue(msg), must.Bytes(json.Marshal(msg))); err != nil {
-			panic(err)
-		}
+		return ctx.Err()
 	}
-
-	return ctx.Err()
 }
 
 // Subscribe returns task subscribing to the type-specific topic, receiving messages from there and distributing them between receiving channels
@@ -123,11 +123,6 @@ func (conn *natsConnection) Subscribe(ctx context.Context, templatePtr Entity, r
 			return nil
 		})
 	}
-}
-
-// PublishCh returns channel used to publish messages
-func (conn *natsConnection) PublishCh() chan<- interface{} {
-	return conn.publishCh
 }
 
 func topicForValue(val interface{}) string {
