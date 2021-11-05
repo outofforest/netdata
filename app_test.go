@@ -16,7 +16,6 @@ import (
 )
 
 type busConn struct {
-	publishCh       chan interface{}
 	cancel          context.CancelFunc
 	updatesRecvChs  []chan<- interface{}
 	requestsRecvChs []chan<- interface{}
@@ -28,74 +27,76 @@ type busConn struct {
 	digests map[wire.UserID][]wire.AlarmDigest
 }
 
-// Run is a task which maintains and closes connection whenever context is canceled
-func (c *busConn) Run(ctx context.Context) error {
-	ctx, cancel := context.WithCancel(libctx.Reopen(ctx))
-	defer cancel()
+// Run is a task which maintains and closes connection
+func (c *busConn) Run(publishCh <-chan interface{}) parallel.Task {
+	return func(ctx context.Context) error {
+		ctx, cancel := context.WithCancel(libctx.Reopen(ctx))
+		defer cancel()
 
-	return parallel.Run(ctx, func(ctx context.Context, spawn parallel.SpawnFn) error {
-		spawn("digests", parallel.Fail, func(ctx context.Context) error {
-			for {
+		return parallel.Run(ctx, func(ctx context.Context, spawn parallel.SpawnFn) error {
+			spawn("digests", parallel.Fail, func(ctx context.Context) error {
+				for {
+					select {
+					case <-ctx.Done():
+						return ctx.Err()
+					case msg, ok := <-publishCh:
+						if !ok {
+							return nil
+						}
+						ad, ok := msg.(*wire.AlarmDigest)
+						if !ok {
+							panic("wrong type")
+						}
+
+						c.mu.Lock()
+						c.digests[ad.UserID] = append(c.digests[ad.UserID], *ad)
+						c.mu.Unlock()
+					}
+				}
+			})
+			spawn("inputs", parallel.Continue, func(ctx context.Context) error {
+				defer c.cancel()
+
 				select {
 				case <-ctx.Done():
 					return ctx.Err()
-				case msg, ok := <-c.publishCh:
-					if !ok {
-						return nil
-					}
-					ad, ok := msg.(*wire.AlarmDigest)
-					if !ok {
-						panic("wrong type")
-					}
-
-					c.mu.Lock()
-					c.digests[ad.UserID] = append(c.digests[ad.UserID], *ad)
-					c.mu.Unlock()
+				case <-c.ready1:
 				}
-			}
+
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-c.ready2:
+				}
+
+				if err := deliver(ctx, c.updatesRecvChs[0], c.requestsRecvChs[0],
+					change(user1, alarm1, wire.StatusWarning, time2),
+					change(user1, alarm2, wire.StatusCritical, time1),
+					send(user1)); err != nil {
+					return err
+				}
+
+				if err := deliver(ctx, c.updatesRecvChs[1], c.requestsRecvChs[1],
+					change(user2, alarm1, wire.StatusWarning, time1),
+					change(user2, alarm1, wire.StatusCleared, time2),
+					change(user2, alarm1, wire.StatusCritical, time4),
+					change(user2, alarm1, wire.StatusWarning, time3),
+					change(user2, alarm2, wire.StatusCritical, time2),
+					send(user2),
+					change(user2, alarm2, wire.StatusWarning, time3),
+					send(user2)); err != nil {
+					return err
+				}
+
+				return deliver(ctx, c.updatesRecvChs[2], c.requestsRecvChs[2],
+					change(user3, alarm1, wire.StatusWarning, time1),
+					change(user3, alarm2, wire.StatusCritical, time2),
+					change(user3, alarm2, wire.StatusCleared, time3),
+					send(user3))
+			})
+			return ctx.Err()
 		})
-		spawn("inputs", parallel.Continue, func(ctx context.Context) error {
-			defer c.cancel()
-
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-c.ready1:
-			}
-
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-c.ready2:
-			}
-
-			if err := deliver(ctx, c.updatesRecvChs[0], c.requestsRecvChs[0],
-				change(user1, alarm1, wire.StatusWarning, time2),
-				change(user1, alarm2, wire.StatusCritical, time1),
-				send(user1)); err != nil {
-				return err
-			}
-
-			if err := deliver(ctx, c.updatesRecvChs[1], c.requestsRecvChs[1],
-				change(user2, alarm1, wire.StatusWarning, time1),
-				change(user2, alarm1, wire.StatusCleared, time2),
-				change(user2, alarm1, wire.StatusCritical, time4),
-				change(user2, alarm1, wire.StatusWarning, time3),
-				change(user2, alarm2, wire.StatusCritical, time2),
-				send(user2),
-				change(user2, alarm2, wire.StatusWarning, time3),
-				send(user2)); err != nil {
-				return err
-			}
-
-			return deliver(ctx, c.updatesRecvChs[2], c.requestsRecvChs[2],
-				change(user3, alarm1, wire.StatusWarning, time1),
-				change(user3, alarm2, wire.StatusCritical, time2),
-				change(user3, alarm2, wire.StatusCleared, time3),
-				send(user3))
-		})
-		return nil
-	})
+	}
 }
 
 // Subscribe returns task subscribing to the type-specific topic, receiving messages from there and distributing them between receiving channels
@@ -114,11 +115,6 @@ func (c *busConn) Subscribe(ctx context.Context, templatePtr bus.Entity, recvChs
 		<-ctx.Done()
 		return ctx.Err()
 	}
-}
-
-// PublishCh returns channel used to publish messages
-func (c *busConn) PublishCh() chan<- interface{} {
-	return c.publishCh
 }
 
 func deliver(ctx context.Context, updates chan<- interface{}, requests chan<- interface{}, msgs ...interface{}) error {
@@ -151,11 +147,10 @@ func TestApp(t *testing.T) {
 		NumOfLocalShards: 3,
 	}
 	conn := &busConn{
-		publishCh: make(chan interface{}),
-		cancel:    cancel,
-		ready1:    make(chan struct{}),
-		ready2:    make(chan struct{}),
-		digests:   map[wire.UserID][]wire.AlarmDigest{},
+		cancel:  cancel,
+		ready1:  make(chan struct{}),
+		ready2:  make(chan struct{}),
+		digests: map[wire.UserID][]wire.AlarmDigest{},
 	}
 
 	require.ErrorIs(t, context.Canceled, App(ctx, config, conn))

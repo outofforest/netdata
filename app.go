@@ -31,14 +31,14 @@ func App(ctx context.Context, config infra.Config, conn bus.Connection) error {
 	}
 
 	return parallel.Run(ctx, func(ctx context.Context, spawn parallel.SpawnFn) error {
-		tx := conn.PublishCh()
+		tx := make(chan interface{})
 		rxes := make([]chan interface{}, 0, config.NumOfLocalShards)
 		for i := uint64(0); i < config.NumOfLocalShards; i++ {
 			rx := make(chan interface{}, localShardBufferSize)
 			rxes = append(rxes, rx)
 		}
 
-		spawn("bus", parallel.Fail, conn.Run)
+		spawn("bus", parallel.Fail, conn.Run(tx))
 		spawn("localShards", parallel.Fail, func(ctx context.Context) error {
 			defer close(tx)
 
