@@ -11,8 +11,8 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/ridge/must"
 	"github.com/ridge/parallel"
+	"github.com/wojciech-malota-wojcik/logger"
 	"github.com/wojciech-malota-wojcik/netdata/infra"
-	"github.com/wojciech-malota-wojcik/netdata/lib/logger"
 	"github.com/wojciech-malota-wojcik/netdata/lib/retry"
 	"go.uber.org/zap"
 )

@@ -7,9 +7,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wojciech-malota-wojcik/logger"
 	"github.com/wojciech-malota-wojcik/netdata/infra"
 	"github.com/wojciech-malota-wojcik/netdata/infra/sharding"
-	"github.com/wojciech-malota-wojcik/netdata/lib/logger"
 )
 
 type deterministicShardIDGenerator struct {

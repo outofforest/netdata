@@ -6,12 +6,12 @@ import (
 
 	"github.com/ridge/parallel"
 	"github.com/wojciech-malota-wojcik/ioc"
+	"github.com/wojciech-malota-wojcik/logger"
 	"github.com/wojciech-malota-wojcik/netdata/infra"
 	"github.com/wojciech-malota-wojcik/netdata/infra/bus"
 	"github.com/wojciech-malota-wojcik/netdata/infra/sharding"
 	"github.com/wojciech-malota-wojcik/netdata/infra/wire"
 	"github.com/wojciech-malota-wojcik/netdata/lib/libctx"
-	"github.com/wojciech-malota-wojcik/netdata/lib/logger"
 )
 
 const localShardBufferSize = 100
@@ -47,7 +47,7 @@ func App(ctx context.Context, config infra.Config, conn bus.Connection) error {
 
 			return parallel.Run(ctx, func(ctx context.Context, spawn parallel.SpawnFn) error {
 				for i, rx := range rxes {
-					spawn(fmt.Sprintf("%d", i), parallel.Continue, runLocalShard(uint64(i), rx, tx))
+					spawn(fmt.Sprintf("%d", i), parallel.Continue, runLocalShard(rx, tx))
 				}
 				return nil
 			})

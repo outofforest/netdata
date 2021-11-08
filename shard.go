@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/ridge/parallel"
+	"github.com/wojciech-malota-wojcik/logger"
 	"github.com/wojciech-malota-wojcik/netdata/infra/wire"
-	"github.com/wojciech-malota-wojcik/netdata/lib/logger"
 	"go.uber.org/zap"
 )
 
@@ -28,9 +28,9 @@ type alarmStatus struct {
 }
 
 // runLocalShard runs a local shard
-func runLocalShard(i uint64, rx <-chan interface{}, tx chan<- interface{}) parallel.Task {
+func runLocalShard(rx <-chan interface{}, tx chan<- interface{}) parallel.Task {
 	return func(ctx context.Context) error {
-		log := logger.Get(ctx).With(zap.Uint64("localShardIndex", i))
+		log := logger.Get(ctx)
 		log.Info("Local shard started")
 
 		users := userList{}
