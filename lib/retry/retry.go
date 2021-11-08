@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/wojciech-malota-wojcik/netdata/lib/logger"
+	"github.com/wojciech-malota-wojcik/logger"
 	"go.uber.org/zap"
 )
 

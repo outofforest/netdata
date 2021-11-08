@@ -8,11 +8,11 @@ import (
 	"github.com/ridge/parallel"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wojciech-malota-wojcik/logger"
 	"github.com/wojciech-malota-wojcik/netdata/infra"
 	"github.com/wojciech-malota-wojcik/netdata/infra/bus"
 	"github.com/wojciech-malota-wojcik/netdata/infra/wire"
 	"github.com/wojciech-malota-wojcik/netdata/lib/libctx"
-	"github.com/wojciech-malota-wojcik/netdata/lib/logger"
 )
 
 type busConn struct {

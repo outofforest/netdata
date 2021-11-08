@@ -9,7 +9,7 @@ import (
 	"github.com/wojciech-malota-wojcik/build"
 	"github.com/wojciech-malota-wojcik/ioc"
 	me "github.com/wojciech-malota-wojcik/netdata/build"
-	"github.com/wojciech-malota-wojcik/netdata/lib/run"
+	"github.com/wojciech-malota-wojcik/run"
 )
 
 func main() {

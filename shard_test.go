@@ -7,8 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wojciech-malota-wojcik/logger"
 	"github.com/wojciech-malota-wojcik/netdata/infra/wire"
-	"github.com/wojciech-malota-wojcik/netdata/lib/logger"
 )
 
 func runLocalShardTest(t *testing.T, messages ...interface{}) []wire.AlarmDigest {
@@ -27,7 +27,7 @@ func runLocalShardTest(t *testing.T, messages ...interface{}) []wire.AlarmDigest
 	}
 	close(rx)
 	tx := make(chan interface{}, responseCapacity)
-	require.NoError(t, runLocalShard(0, rx, tx)(ctx))
+	require.NoError(t, runLocalShard(rx, tx)(ctx))
 	close(tx)
 
 	result := make([]wire.AlarmDigest, 0, responseCapacity)
